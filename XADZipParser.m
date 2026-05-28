@@ -138,8 +138,13 @@
         off_t chunk_start = chunk_end - numbytes;
 
         uint8_t *buf = malloc(numbytes);
-        [fh seekToFileOffset:chunk_start];
-        [fh readBytes:numbytes toBuffer:buf];
+        @try {
+            [fh seekToFileOffset:chunk_start];
+            [fh readBytes:numbytes toBuffer:buf];
+        } @catch(id e) {
+            free(buf);
+            @throw;
+        }
 
         int preservedBytes = chunk_start >= 20 ? 20 : 0;
         int pos=numbytes-4;
@@ -285,68 +290,84 @@
 		if(![self shouldKeepParsing]) break;
 
 		NSAutoreleasePool *pool=[NSAutoreleasePool new];
-
-        XADZipParserCentralDirectoryRecord cdr = [self readCentralDirectoryRecord];
-
-        // Parse comment data
-		NSData *commentdata=nil;
-		if(cdr.commentlength) commentdata=[fh readDataOfLength:cdr.commentlength];
-        
-		off_t next=[fh offsetInFile];
-
-		// Some idiotic compressors write files with more than 65535 files without
-		// using Zip64, so numentries overflows. Try to detect if there is enough space
-		// left in the central directory for another 65536 files, and if so, extend the
-		// parsing to include them. This may happen multiple times.
-		if(i==numentries-1 && zip64offs<0)
+		@try
 		{
-			if(centraloffset+centralsize-next>65536*46) numentries+=65536;
-		}
+			XADZipParserCentralDirectoryRecord cdr = [self readCentralDirectoryRecord];
 
-		// Read local header
-		[fh seekToFileOffset:[self offsetForVolume:cdr.startdisk offset:cdr.locheaderoffset]];
+			// Parse comment data
+			NSData *commentdata=nil;
+			if(cdr.commentlength) commentdata=[fh readDataOfLength:cdr.commentlength];
 
-		uint32_t localid=[fh readID];
-		if(localid==0x504b0304||localid==0x504b0506) // kludge for strange archives
-		{
-			//int localextractversion=[fh readUInt16LE];
-			//int localflags=[fh readUInt16LE];
-			//int localcompressionmethod=[fh readUInt16LE];
-			[fh skipBytes:6];
-			uint32_t localdate=[fh readUInt32LE];
-			//uint32_t localcrc=[fh readUInt32LE];
-			//uint32_t localcompsize=[fh readUInt32LE];
-			//uint32_t localuncompsize=[fh readUInt32LE];
-			[fh skipBytes:12];
-			int localnamelength=[fh readUInt16LE];
-			int localextralength=[fh readUInt16LE];
+			off_t next=[fh offsetInFile];
 
-			off_t dataoffset=[fh offsetInFile]+localnamelength+localextralength;
-
-			NSData *namedata=nil;
-			if(localnamelength) namedata=[fh readDataOfLength:localnamelength];
-
-			NSDictionary *extradict=nil;
-			@try {
-				if(localextralength) extradict=[self parseZipExtraWithLength:localextralength nameData:namedata
-				uncompressedSizePointer:&cdr.uncompsize compressedSizePointer:&cdr.compsize];
-			} @catch(id e) {
-				[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
-				NSLog(@"Error parsing Zip extra fields: %@",e);
+			// Some idiotic compressors write files with more than 65535 files without
+			// using Zip64, so numentries overflows. Try to detect if there is enough space
+			// left in the central directory for another 65536 files, and if so, extend the
+			// parsing to include them. This may happen multiple times.
+			if(i==numentries-1 && zip64offs<0)
+			{
+				if(centraloffset+centralsize-next>65536*46) numentries+=65536;
 			}
 
-            // TODO: Consider using CDR struct
-			[self addZipEntryWithSystem:cdr.system extractVersion:cdr.extractversion flags:cdr.flags
-			compressionMethod:cdr.compressionmethod date:cdr.date crc:cdr.crc localDate:localdate
-			compressedSize:cdr.compsize uncompressedSize:cdr.uncompsize extendedFileAttributes:cdr.extfileattrib
-			extraDictionary:extradict dataOffset:dataoffset nameData:namedata commentData:commentdata
-			isLastEntry:i==numentries-1];
+			// Read local header
+			[fh seekToFileOffset:[self offsetForVolume:cdr.startdisk offset:cdr.locheaderoffset]];
+
+			uint32_t localid=[fh readID];
+			if(localid==0x504b0304||localid==0x504b0506) // kludge for strange archives
+			{
+				//int localextractversion=[fh readUInt16LE];
+				//int localflags=[fh readUInt16LE];
+				//int localcompressionmethod=[fh readUInt16LE];
+				[fh skipBytes:6];
+				uint32_t localdate=[fh readUInt32LE];
+				//uint32_t localcrc=[fh readUInt32LE];
+				//uint32_t localcompsize=[fh readUInt32LE];
+				//uint32_t localuncompsize=[fh readUInt32LE];
+				[fh skipBytes:12];
+				int localnamelength=[fh readUInt16LE];
+				int localextralength=[fh readUInt16LE];
+
+				off_t dataoffset=[fh offsetInFile]+localnamelength+localextralength;
+
+				NSData *namedata=nil;
+				if(localnamelength) namedata=[fh readDataOfLength:localnamelength];
+
+				NSDictionary *extradict=nil;
+				@try {
+					if(localextralength) extradict=[self parseZipExtraWithLength:localextralength nameData:namedata
+					uncompressedSizePointer:&cdr.uncompsize compressedSizePointer:&cdr.compsize];
+				} @catch(id e) {
+					[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
+					NSLog(@"Error parsing Zip extra fields: %@",e);
+				}
+
+				// TODO: Consider using CDR struct
+				[self addZipEntryWithSystem:cdr.system
+							 extractVersion:cdr.extractversion
+									  flags:cdr.flags
+						  compressionMethod:cdr.compressionmethod
+									   date:cdr.date crc:cdr.crc
+								  localDate:localdate
+							 compressedSize:cdr.compsize
+						   uncompressedSize:cdr.uncompsize
+					 extendedFileAttributes:cdr.extfileattrib
+							extraDictionary:extradict
+								 dataOffset:dataoffset
+								   nameData:namedata
+								commentData:commentdata
+								isLastEntry:i==numentries-1];
+			}
+			else
+			{
+				[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
+			}
+
+			[fh seekToFileOffset:next];
 		}
-		else [self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
-
-		[fh seekToFileOffset:next];
-
-		[pool release];
+		@finally
+		{
+			[pool release];
+		}
 	}
 }
 
@@ -448,7 +469,7 @@
 
 		uint32_t localid;
 		@try { localid=[fh readID]; }
-		@catch(id e) { break; }
+		@catch(id e) { [pool release]; break; }
 
 		switch(localid)
 		{

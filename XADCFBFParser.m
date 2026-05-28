@@ -30,6 +30,7 @@
 	{
 		sectable=NULL;
 		minisectable=NULL;
+		secvisitedtable=NULL;
 	}
 	return self;
 }
@@ -38,6 +39,7 @@
 {
 	free(sectable);
 	free(minisectable);
+	free(secvisitedtable);
 	[super dealloc];
 }
 
