@@ -21,6 +21,7 @@
 #import "XADCFBFParser.h"
 #import "XADBlockHandle.h"
 #import "NSDateXAD.h"
+#import <limits.h>
 
 @implementation XADCFBFParser
 
@@ -56,7 +57,7 @@
 {
 	CSHandle *fh=[self handle];
 
-	// Read header
+	/* Read header */
 
 	[fh skipBytes:30];
 	int secshift=[fh readUInt16LE];
@@ -71,16 +72,33 @@
 	uint32_t firstmastersec=[fh readUInt32LE];
 	/*uint32_t nummastersecs=*/[fh readUInt32LE];
 
+	const int maxSecShift=(int)(sizeof(secsize)*CHAR_BIT)-1;
+	const int maxMiniSecShift=(int)(sizeof(minisecsize)*CHAR_BIT)-1;
+	if(secshift>=maxSecShift || minisecshift>=maxMiniSecShift)
+	{
+		[XADException raiseIllegalDataException];
+	}
+
+	// Shift values are validated above to prevent overflow.
 	secsize=1<<secshift;
 	minisecsize=1<<minisecshift;
 
-
-
-	// Read allocation table through the master allocation table
+	/* Read allocation table through the master allocation table */
 
 	int idspersec=secsize/4;
+	// secsize smaller than 4 truncates to zero on integer division.
+	if(idspersec==0)
+	{
+		[XADException raiseIllegalDataException];
+	}
 
-	numsectors=numtablesecs*idspersec;
+	int sectorCount;
+	bool sectorCountOverflowed=__builtin_mul_overflow(numtablesecs,idspersec,&sectorCount);
+	if(sectorCountOverflowed)
+	{
+		[XADException raiseIllegalDataException];
+	}
+	numsectors=sectorCount;
 	sectable=malloc(numsectors*sizeof(uint32_t));
 	secvisitedtable=calloc(numsectors*sizeof(bool),1);
 
@@ -104,11 +122,15 @@
 		[fh seekToFileOffset:currpos];
 	}
 
+	/* Read short-sector allocation table */
 
-
-	// Read short-sector allocation table
-
-	numminisectors=numminitablesecs*idspersec;
+	int miniSectorCount;
+	bool miniSectorCountOverflowed=__builtin_mul_overflow(numminitablesecs,idspersec,&miniSectorCount);
+	if(miniSectorCountOverflowed)
+	{
+		[XADException raiseIllegalDataException];
+	}
+	numminisectors=miniSectorCount;
 	minisectable=malloc(numminisectors*sizeof(uint32_t));
 
 	uint32_t minitablesec=firstminitablesec;
@@ -119,9 +141,7 @@
 		minitablesec=[self nextSectorAfter:minitablesec];
 	}
 
-
-
-	// Read directory entries
+	/* Read directory entries */
 
 	NSMutableArray *entries=[NSMutableArray array];
 
@@ -129,6 +149,8 @@
 	uint32_t dirsec=firstdirsec;
 	while(dirsec!=0xfffffffe)
 	{
+		// dirsec comes from the file and may exceed the secvisitedtable bounds.
+		if(dirsec>=(uint32_t)numsectors) [XADException raiseIllegalDataException];
 		if(secvisitedtable[dirsec]) [XADException raiseIllegalDataException];
 		secvisitedtable[dirsec]=true;
 		[self seekToSector:dirsec];
@@ -208,9 +230,7 @@
 		dirsec=[self nextSectorAfter:dirsec];
 	}
 
-
-
-	// Resolve directory structure
+	/* Resolve directory structure */
 
 	[self processEntry:rootdirectorynode atPath:[self XADPath] entries:entries];
 }
