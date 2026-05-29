@@ -333,12 +333,12 @@
 				if(localnamelength) namedata=[fh readDataOfLength:localnamelength];
 
 				NSDictionary *extradict=nil;
-				@try {
-					if(localextralength) extradict=[self parseZipExtraWithLength:localextralength nameData:namedata
-					uncompressedSizePointer:&cdr.uncompsize compressedSizePointer:&cdr.compsize];
-				} @catch(id e) {
-					[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
-					NSLog(@"Error parsing Zip extra fields: %@",e);
+				if(localextralength)
+				{
+					extradict=[self parseZipExtraOrNilWithLength:localextralength
+														nameData:namedata
+										 uncompressedSizePointer:&cdr.uncompsize
+										   compressedSizePointer:&cdr.compsize];
 				}
 
 				// TODO: Consider using CDR struct
@@ -468,86 +468,115 @@
 		NSAutoreleasePool *pool=[NSAutoreleasePool new];
 
 		uint32_t localid;
-		@try { localid=[fh readID]; }
-		@catch(id e) { [pool release]; break; }
-
-		switch(localid)
-		{
-			case 0x504b0304: // local record
-			case 0x504b0506: // kludge for strange archives
-			{
-				int extractversion=[fh readUInt16LE];
-				int flags=[fh readUInt16LE];
-				int compressionmethod=[fh readUInt16LE];
-				uint32_t date=[fh readUInt32LE];
-				uint32_t crc=[fh readUInt32LE];
-				off_t compsize=[fh readUInt32LE];
-				off_t uncompsize=[fh readUInt32LE];
-				int namelength=[fh readUInt16LE];
-				int extralength=[fh readUInt16LE];
-
-				off_t dataoffset=[fh offsetInFile]+namelength+extralength;
-
-				NSData *namedata=nil;
-				if(namelength) namedata=[fh readDataOfLength:namelength];
-
-				NSDictionary *extradict=nil;
-				@try {
-					if(extralength) extradict=[self parseZipExtraWithLength:extralength nameData:namedata
-					uncompressedSizePointer:&uncompsize compressedSizePointer:&compsize];
-				} @catch(id e) {
-					[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
-					NSLog(@"Error parsing Zip extra fields: %@",e);
-				}
-
-				off_t next;
-				if(flags&0x08) // No size or CRC recorded
-				{
-					NSNumber *zip64num=[extradict objectForKey:@"Zip64"];
-
-					[self findEndOfStreamMarkerWithZip64Flag:zip64num&&[zip64num boolValue]
-					uncompressedSizePointer:&uncompsize compressedSizePointer:&compsize
-					CRCPointer:&crc];
-
-					next=[fh offsetInFile];
-				}
-				else
-				{
-					next=dataoffset+compsize;
-				}
-
-				[self addZipEntryWithSystem:-1 extractVersion:extractversion flags:flags
-				compressionMethod:compressionmethod date:date crc:crc localDate:date
-				compressedSize:compsize uncompressedSize:uncompsize extendedFileAttributes:0xffffffff
-				extraDictionary:extradict dataOffset:dataoffset nameData:namedata commentData:nil
-				isLastEntry:NO];
-
-				[fh seekToFileOffset:next];
-			}
-			break;
-
-			case 0x504b0102: // central record - stop scanning
-				[pool release];
-				goto end;
-			break;
-
-			case 0x504b0708: // multi
-			case 0x504b3030: // something strange
-				// Skip these mysterious entries
-				[self findNextEntry];
-			break;
-
-			default:
-				// When encountering unknown data, mark as corrupt and try to recover
-				[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
-				[self findNextEntry];
+		@try {
+			localid=[fh readID];
+		} @catch(id e) {
+			[pool release];
+			// EOF - stop parsing
 			break;
 		}
 
-		[pool release];
-	}
+		BOOL stopParsing=NO;
+		@try
+		{
+			switch(localid)
+			{
+				case 0x504b0304: // local record
+				case 0x504b0506: // kludge for strange archives
+				{
+					int extractversion=[fh readUInt16LE];
+					int flags=[fh readUInt16LE];
+					int compressionmethod=[fh readUInt16LE];
+					uint32_t date=[fh readUInt32LE];
+					uint32_t crc=[fh readUInt32LE];
+					off_t compsize=[fh readUInt32LE];
+					off_t uncompsize=[fh readUInt32LE];
+					int namelength=[fh readUInt16LE];
+					int extralength=[fh readUInt16LE];
 
-	end:
+					off_t dataoffset=[fh offsetInFile]+namelength+extralength;
+
+					NSData *namedata=nil;
+					if(namelength)
+					{
+						namedata=[fh readDataOfLength:namelength];
+					}
+
+					NSDictionary *extradict=nil;
+					if(extralength)
+					{
+						extradict=[self parseZipExtraOrNilWithLength:extralength
+															nameData:namedata
+											 uncompressedSizePointer:&uncompsize
+											   compressedSizePointer:&compsize];
+					}
+
+					off_t next;
+					if(flags&0x08) // No size or CRC recorded
+					{
+						NSNumber *zip64num=[extradict objectForKey:@"Zip64"];
+
+						[self findEndOfStreamMarkerWithZip64Flag:zip64num&&[zip64num boolValue]
+										 uncompressedSizePointer:&uncompsize
+										   compressedSizePointer:&compsize
+													  CRCPointer:&crc];
+						next=[fh offsetInFile];
+					}
+					else
+					{
+						next=dataoffset+compsize;
+					}
+
+					[self addZipEntryWithSystem:-1
+								 extractVersion:extractversion
+										  flags:flags
+							  compressionMethod:compressionmethod
+										   date:date
+											crc:crc
+									  localDate:date
+								 compressedSize:compsize
+							   uncompressedSize:uncompsize
+						 extendedFileAttributes:0xffffffff
+								extraDictionary:extradict
+									 dataOffset:dataoffset
+									   nameData:namedata
+									commentData:nil
+									isLastEntry:NO];
+
+					[fh seekToFileOffset:next];
+				}
+				break;
+
+				case 0x504b0102: // central directory record found - stop scanning local entries
+				{
+					stopParsing=YES;
+				}
+				break;
+
+				case 0x504b0708: // multi
+				case 0x504b3030: // something strange
+				{
+					// Skip these mysterious entries
+					[self findNextEntry];
+				}
+				break;
+
+				default:
+				{
+					// When encountering unknown data, mark as corrupt and try to recover
+					[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
+					[self findNextEntry];
+				}
+				break;
+			}
+		}
+		@finally
+		{
+			[pool release];
+		}
+
+		if(stopParsing) break;
+	}
 
 	// Clean up any possible remaining dictionary, since isLastEntry was never set.
 	if(prevdict)
@@ -673,6 +702,24 @@ static int MatchZipEntry(const uint8_t *bytes,int available,off_t offset,void *s
 
 
 
+
+// Returns nil on error; the handle position is left undefined within the extra-field block.
+-(NSDictionary *)parseZipExtraOrNilWithLength:(int)length
+									 nameData:(NSData *)namedata
+					  uncompressedSizePointer:(off_t *)uncompsizeptr
+						compressedSizePointer:(off_t *)compsizeptr
+{
+	@try {
+		return [self parseZipExtraWithLength:length
+									nameData:namedata
+					 uncompressedSizePointer:uncompsizeptr
+					   compressedSizePointer:compsizeptr];
+	} @catch(id e) {
+		[self setObject:[NSNumber numberWithBool:YES] forPropertyKey:XADIsCorruptedKey];
+		NSLog(@"Error parsing Zip extra fields: %@",e);
+		return nil;
+	}
+}
 
 -(NSDictionary *)parseZipExtraWithLength:(int)length nameData:(NSData *)namedata
 uncompressedSizePointer:(off_t *)uncompsizeptr compressedSizePointer:(off_t *)compsizeptr
