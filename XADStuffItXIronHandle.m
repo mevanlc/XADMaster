@@ -23,6 +23,7 @@
 #import "StuffItXUtilities.h"
 #import "CarrylessRangeCoder.h"
 #import "BWT.h"
+#import <limits.h>
 
 
 
@@ -93,12 +94,21 @@ static int NextBitWithDoubleWeights(CarrylessRangeCoder *coder,uint32_t *weight1
 
 	if(CSInputNextBitLE(input)==1) return -1;
 
-	unsigned int blocksize=(unsigned int)CSInputNextSitxP2(input);
+	uint64_t rawblocksize=CSInputNextSitxP2(input);
+	// Values above INT_MAX overflow when cast to int later (e.g. decodeBlockWithLength:).
+	if(rawblocksize>INT_MAX) [XADException raiseIllegalDataException];
+	unsigned int blocksize=(unsigned int)rawblocksize;
 
 	if(blocksize>currsize)
 	{
+		size_t allocsize;
+		bool allocOverflowed=__builtin_mul_overflow((size_t)blocksize,(size_t)6,&allocsize);
+		if(allocOverflowed)
+		{
+			[XADException raiseIllegalDataException];
+		}
 		free(block);
-		block=malloc(blocksize*6);
+		block=malloc(allocsize);
 		if(!block) [XADException raiseOutOfMemoryException];
 		sorted=block+blocksize;
 		table=(uint32_t *)(block+2*blocksize);
