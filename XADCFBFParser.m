@@ -86,21 +86,29 @@
 	/* Read allocation table through the master allocation table */
 
 	int idspersec=secsize/4;
-	// secsize smaller than 4 truncates to zero on integer division.
-	if(idspersec==0)
+	// Per MS-CFB spec, Sector Shift MUST be 0x0009 (version 3) or 0x000C (version 4),
+	// giving idspersec of 128 or 1024. We do not enforce spec values to preserve
+	// compatibility with non-conformant files. However, idspersec==0 (secsize<4)
+	// and idspersec==1 (secsize==4) must be rejected: the DIFAT traversal below
+	// uses (idspersec-1) as a modulo divisor, which would be zero in those cases.
+	if(idspersec<=1)
 	{
 		[XADException raiseIllegalDataException];
 	}
 
-	int sectorCount;
-	bool sectorCountOverflowed=__builtin_mul_overflow(numtablesecs,idspersec,&sectorCount);
-	if(sectorCountOverflowed)
+	// numtablesecs*idspersec must not overflow int.
+	if(numtablesecs>(uint32_t)(INT_MAX/idspersec))
 	{
 		[XADException raiseIllegalDataException];
 	}
-	numsectors=sectorCount;
-	sectable=malloc(numsectors*sizeof(uint32_t));
-	secvisitedtable=calloc(numsectors*sizeof(bool),1);
+	numsectors=(int)(numtablesecs*(uint32_t)idspersec);
+	// numsectors*sizeof(uint32_t) must not overflow size_t.
+	if((size_t)numsectors>SIZE_MAX/sizeof(uint32_t))
+	{
+		[XADException raiseIllegalDataException];
+	}
+	sectable=malloc((size_t)numsectors*sizeof(uint32_t));
+	secvisitedtable=calloc(numsectors,sizeof(bool));
 
 	for(int i=0;i<numtablesecs;i++)
 	{
@@ -124,14 +132,18 @@
 
 	/* Read short-sector allocation table */
 
-	int miniSectorCount;
-	bool miniSectorCountOverflowed=__builtin_mul_overflow(numminitablesecs,idspersec,&miniSectorCount);
-	if(miniSectorCountOverflowed)
+	// numminitablesecs*idspersec must not overflow int.
+	if(numminitablesecs>(uint32_t)(INT_MAX/idspersec))
 	{
 		[XADException raiseIllegalDataException];
 	}
-	numminisectors=miniSectorCount;
-	minisectable=malloc(numminisectors*sizeof(uint32_t));
+	numminisectors=(int)(numminitablesecs*(uint32_t)idspersec);
+	// numminisectors*sizeof(uint32_t) must not overflow size_t.
+	if((size_t)numminisectors>SIZE_MAX/sizeof(uint32_t))
+	{
+		[XADException raiseIllegalDataException];
+	}
+	minisectable=malloc((size_t)numminisectors*sizeof(uint32_t));
 
 	uint32_t minitablesec=firstminitablesec;
 	for(int i=0;i<numminitablesecs;i++)
