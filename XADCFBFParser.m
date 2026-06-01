@@ -108,7 +108,15 @@
 		[XADException raiseIllegalDataException];
 	}
 	sectable=malloc((size_t)numsectors*sizeof(uint32_t));
+	if(!sectable)
+	{
+		[XADException raiseOutOfMemoryException];
+	}
 	secvisitedtable=calloc(numsectors,sizeof(bool));
+	if(!secvisitedtable)
+	{
+		[XADException raiseOutOfMemoryException];
+	}
 
 	for(int i=0;i<numtablesecs;i++)
 	{
@@ -144,6 +152,10 @@
 		[XADException raiseIllegalDataException];
 	}
 	minisectable=malloc((size_t)numminisectors*sizeof(uint32_t));
+	if(!minisectable)
+	{
+		[XADException raiseOutOfMemoryException];
+	}
 
 	uint32_t minitablesec=firstminitablesec;
 	for(int i=0;i<numminitablesecs;i++)
