@@ -101,14 +101,13 @@ static int NextBitWithDoubleWeights(CarrylessRangeCoder *coder,uint32_t *weight1
 
 	if(blocksize>currsize)
 	{
-		size_t allocsize;
-		bool allocOverflowed=__builtin_mul_overflow((size_t)blocksize,(size_t)6,&allocsize);
-		if(allocOverflowed)
+		// blocksize*6 must not overflow size_t.
+		if((size_t)blocksize>SIZE_MAX/6)
 		{
 			[XADException raiseIllegalDataException];
 		}
 		free(block);
-		block=malloc(allocsize);
+		block=malloc((size_t)blocksize*6);
 		if(!block) [XADException raiseOutOfMemoryException];
 		sorted=block+blocksize;
 		table=(uint32_t *)(block+2*blocksize);
