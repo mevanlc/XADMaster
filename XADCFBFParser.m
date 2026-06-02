@@ -97,7 +97,8 @@
 	}
 
 	// numtablesecs*idspersec must not overflow int.
-	if(numtablesecs>(uint32_t)(INT_MAX/idspersec))
+	// numtablesecs==0 means no FAT sectors, which is invalid.
+	if(numtablesecs==0 || numtablesecs>(uint32_t)(INT_MAX/idspersec))
 	{
 		[XADException raiseIllegalDataException];
 	}
@@ -146,15 +147,20 @@
 		[XADException raiseIllegalDataException];
 	}
 	numminisectors=(int)(numminitablesecs*(uint32_t)idspersec);
-	// numminisectors*sizeof(uint32_t) must not overflow size_t.
-	if((size_t)numminisectors>SIZE_MAX/sizeof(uint32_t))
+	// numminitablesecs==0 is valid for files with no mini-stream.
+	// Skip allocation; malloc(0) may return NULL, which would be misidentified as OOM.
+	if(numminisectors>0)
 	{
-		[XADException raiseIllegalDataException];
-	}
-	minisectable=malloc((size_t)numminisectors*sizeof(uint32_t));
-	if(!minisectable)
-	{
-		[XADException raiseOutOfMemoryException];
+		// numminisectors*sizeof(uint32_t) must not overflow size_t.
+		if((size_t)numminisectors>SIZE_MAX/sizeof(uint32_t))
+		{
+			[XADException raiseIllegalDataException];
+		}
+		minisectable=malloc((size_t)numminisectors*sizeof(uint32_t));
+		if(!minisectable)
+		{
+			[XADException raiseOutOfMemoryException];
+		}
 	}
 
 	uint32_t minitablesec=firstminitablesec;
