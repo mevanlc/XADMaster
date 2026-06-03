@@ -32,6 +32,8 @@ extern NSString *CSFileErrorException;
 	FILE *fh;
 	NSString *path;
 	BOOL close;
+	BOOL isReadOnly;
+	off_t cachedFileSize;
 
 	NSLock *multilock;
 	CSFileHandle *fhowner;
@@ -47,6 +49,7 @@ extern NSString *CSFileErrorException;
 
 // Initializers
 -(id)initWithFilePointer:(FILE *)file closeOnDealloc:(BOOL)closeondealloc path:(NSString *)filepath;
+-(id)initWithFilePointer:(FILE *)file closeOnDealloc:(BOOL)closeondealloc path:(NSString *)filepath readOnly:(BOOL)readOnly;
 -(id)initAsCopyOf:(CSFileHandle *)other;
 -(void)dealloc;
 -(void)close;

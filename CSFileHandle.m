@@ -55,8 +55,13 @@ NSString *CSFileErrorException=@"CSFileErrorException";
 	if(!fileh) [NSException raise:CSCannotOpenFileException
 	format:@"Error attempting to open file \"%@\" in mode \"%@\".",path,modes];
 
-	CSFileHandle *handle=[[[CSFileHandle alloc] initWithFilePointer:fileh closeOnDealloc:YES path:path] autorelease];
-	if(handle) return handle;
+	// Only "rb" is considered read-only; update modes (e.g. "r+b") may modify file size.
+	BOOL readOnly=[modes isEqualToString:@"rb"];
+	CSFileHandle *handle=[[CSFileHandle alloc] initWithFilePointer:fileh
+	                                               closeOnDealloc:YES
+	                                                         path:path
+	                                                     readOnly:readOnly];
+	if(handle) return [handle autorelease];
 
 	fclose(fileh);
 	return nil;
@@ -88,11 +93,18 @@ NSString *CSFileErrorException=@"CSFileErrorException";
 
 -(id)initWithFilePointer:(FILE *)file closeOnDealloc:(BOOL)closeondealloc path:(NSString *)filepath
 {
+	return [self initWithFilePointer:file closeOnDealloc:closeondealloc path:filepath readOnly:NO];
+}
+
+-(id)initWithFilePointer:(FILE *)file closeOnDealloc:(BOOL)closeondealloc path:(NSString *)filepath readOnly:(BOOL)readOnly
+{
 	if(self=[super init])
 	{
 		fh=file;
 		path=[filepath retain];
- 		close=closeondealloc;
+		close=closeondealloc;
+		isReadOnly=readOnly;
+		cachedFileSize=-1;
 		multilock=nil;
 		fhowner=nil;
 	}
@@ -105,7 +117,9 @@ NSString *CSFileErrorException=@"CSFileErrorException";
 	{
 		fh=other->fh;
 		path=[other->path retain];
- 		close=NO;
+		close=NO;
+		isReadOnly=other->isReadOnly;
+		cachedFileSize=other->cachedFileSize;
 		if(other->fhowner) fhowner=[other->fhowner retain];
 		else fhowner=[other retain];
 
@@ -144,6 +158,11 @@ NSString *CSFileErrorException=@"CSFileErrorException";
 
 -(off_t)fileSize
 {
+	if(cachedFileSize>=0)
+	{
+		return cachedFileSize;
+	}
+
 	#if defined(__MINGW32__)
 	struct _stati64 s;
 	if(_fstati64(fileno(fh),&s)) [self _raiseError];
@@ -152,6 +171,10 @@ NSString *CSFileErrorException=@"CSFileErrorException";
 	if(fstat(fileno(fh),&s)) [self _raiseError];
 	#endif
 
+	if(isReadOnly)
+	{
+		cachedFileSize=s.st_size;
+	}
 	return s.st_size;
 }
 
