@@ -687,8 +687,10 @@ outputTarget:(id)target selector:(SEL)selector argument:(id)argument
 	{
 		return [XADException parseException:e];
 	}
-
-	free(buf);
+	@finally
+	{
+		free(buf);
+	}
 
 	return XADNoError;
 }

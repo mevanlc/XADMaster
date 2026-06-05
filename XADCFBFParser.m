@@ -32,6 +32,7 @@ static const int kCFBFEntryNameMaxSize = 64;
 	{
 		sectable=NULL;
 		minisectable=NULL;
+		secvisitedtable=NULL;
 	}
 	return self;
 }
@@ -40,6 +41,7 @@ static const int kCFBFEntryNameMaxSize = 64;
 {
 	free(sectable);
 	free(minisectable);
+	free(secvisitedtable);
 	[super dealloc];
 }
 
