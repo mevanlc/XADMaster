@@ -13,7 +13,7 @@
 
 # Building
 
-XADMaster relies on directories structure. To start development you'll need to clone the main project with Universal Detector library:
+XADMaster relies on its directory structure. To start development you'll need to clone the main project with the Universal Detector library:
 ```
 git clone https://github.com/MacPaw/XADMaster.git
 git clone https://github.com/MacPaw/universal-detector.git UniversalDetector
@@ -24,6 +24,28 @@ The resulting directory structure should look like:
 <development-directory>
   /XADMaster
   /UniversalDetector
+```
+
+## macOS command-line tools
+
+The `unar` and `lsar` Xcode targets include the complete set of formats supported by this XADMaster checkout, including the vendored libxad and WavPack implementations. They require Xcode and [just](https://github.com/casey/just), as well as the sibling `UniversalDetector` checkout shown above.
+
+Build both tools for the host architecture:
+
+```sh
+just cli
+```
+
+Build universal binaries for Apple Silicon and Intel Macs:
+
+```sh
+just cli-universal
+```
+
+The native binaries are written to `build/macos-native/Build/Products/Release/`; universal binaries are written to `build/macos-universal/Build/Products/Release/`. The build configuration and deployment target can be overridden when invoking `just`, for example:
+
+```sh
+just configuration=Debug deployment_target=13.0 cli
 ```
 
 # Usages
